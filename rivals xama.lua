@@ -1,4 +1,3 @@
-											
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -6,6 +5,7 @@ local Lighting = game:GetService("Lighting")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local DataStoreService = game:GetService("DataStoreService")
+local HttpService = game:GetService("HttpService")
 if RunService:IsServer() then
 	local store = DataStoreService:GetDataStore("XamaSettings")
 	local remote = Instance.new("RemoteFunction")
@@ -44,24 +44,30 @@ local DISCORD_LINK = "discord.gg/your-invite-here"
 local MENU_KEY = Enum.KeyCode.RightShift
 local AIM_KEY = Enum.KeyCode.Q
 local THEMES = {
-	White = { Accent = Color3.fromRGB(255, 255, 255), Light = Color3.fromRGB(190, 190, 190) },
-	Silver = { Accent = Color3.fromRGB(200, 200, 200), Light = Color3.fromRGB(150, 150, 150) },
-	Gray = { Accent = Color3.fromRGB(140, 140, 140), Light = Color3.fromRGB(100, 100, 100) },
+	Red = { Accent = Color3.fromRGB(235, 35, 50), Light = Color3.fromRGB(255, 95, 105), Dim = Color3.fromRGB(100, 16, 24) },
+	Crimson = { Accent = Color3.fromRGB(190, 20, 48), Light = Color3.fromRGB(235, 75, 100), Dim = Color3.fromRGB(80, 12, 26) },
+	Orange = { Accent = Color3.fromRGB(255, 110, 25), Light = Color3.fromRGB(255, 165, 85), Dim = Color3.fromRGB(105, 46, 10) },
+	Pink = { Accent = Color3.fromRGB(255, 60, 140), Light = Color3.fromRGB(255, 130, 185), Dim = Color3.fromRGB(105, 24, 62) },
+	White = { Accent = Color3.fromRGB(255, 255, 255), Light = Color3.fromRGB(190, 190, 190), Dim = Color3.fromRGB(80, 80, 80) },
 }
-local THEME_NAMES = { "White", "Silver", "Gray" }
+local THEME_NAMES = { "Red", "Crimson", "Orange", "Pink", "White" }
 
 local C = {
-	Dark = Color3.fromRGB(0, 0, 0),
-	Navy = Color3.fromRGB(24, 24, 24),
-	Accent = THEMES.White.Accent,
-	Light = THEMES.White.Light,
-	Text = Color3.fromRGB(255, 255, 255),
-	SubText = Color3.fromRGB(200, 200, 200),
-	Good = Color3.fromRGB(255, 255, 255),
-	Bad = Color3.fromRGB(70, 70, 70),
-	Off = Color3.fromRGB(32, 32, 32),
-	Btn = Color3.fromRGB(18, 18, 18),
-	BtnHover = Color3.fromRGB(55, 55, 55),
+	Dark = Color3.fromRGB(9, 9, 10),
+	Navy = Color3.fromRGB(16, 16, 18),
+	Panel = Color3.fromRGB(17, 17, 19),
+	Border = Color3.fromRGB(44, 44, 50),
+	Line = Color3.fromRGB(30, 30, 34),
+	Accent = THEMES.Red.Accent,
+	Light = THEMES.Red.Light,
+	Dim = THEMES.Red.Dim,
+	Text = Color3.fromRGB(240, 240, 240),
+	SubText = Color3.fromRGB(150, 150, 156),
+	Good = Color3.fromRGB(90, 255, 140),
+	Bad = Color3.fromRGB(70, 16, 22),
+	Off = Color3.fromRGB(34, 34, 38),
+	Btn = Color3.fromRGB(22, 22, 25),
+	BtnHover = Color3.fromRGB(40, 40, 46),
 }
 
 local rng = Random.new()
@@ -90,9 +96,9 @@ local function tween(obj, time, props, style, dir)
 	return t
 end
 
--- Square theme: every "corner" is 0 radius
+-- Slightly rounded corners (3px) on everything
 local function corner(obj, radius)
-	return new("UICorner", { CornerRadius = UDim.new(0, 0) }, obj)
+	return new("UICorner", { CornerRadius = UDim.new(0, radius or 3) }, obj)
 end
 
 -- Anything that uses the accent color registers here so the Accent dropdown can recolor it
@@ -106,27 +112,10 @@ end
 local function applyTheme(theme)
 	C.Accent = theme.Accent
 	C.Light = theme.Light
+	C.Dim = theme.Dim or C.Dim
 	for _, fn in ipairs(accentUpdaters) do
 		pcall(fn)
 	end
-end
-
-local function glassStroke(obj, thickness)
-	local stroke = new("UIStroke", {
-		Thickness = thickness or 1.5,
-		Color = Color3.new(1, 1, 1),
-		Transparency = 0.1,
-		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
-	}, obj)
-	local grad = new("UIGradient", { Rotation = 45 }, stroke)
-	onAccent(function()
-		grad.Color = ColorSequence.new({
-			ColorSequenceKeypoint.new(0, C.Light),
-			ColorSequenceKeypoint.new(0.5, C.Accent),
-			ColorSequenceKeypoint.new(1, C.Light),
-		})
-	end)
-	return stroke
 end
 
 local function label(parent, text, size, position, font, textSize, color, alignX)
@@ -138,8 +127,6 @@ local function label(parent, text, size, position, font, textSize, color, alignX
 		Font = font,
 		TextSize = textSize,
 		TextColor3 = color or C.Text,
-		TextStrokeTransparency = 0.8,
-		TextStrokeColor3 = Color3.new(0, 0, 0),
 		TextXAlignment = alignX or Enum.TextXAlignment.Center,
 		BorderSizePixel = 0,
 	}, parent)
@@ -186,91 +173,84 @@ local gui = new("ScreenGui", {
 
 local blur = new("BlurEffect", { Size = 0, Name = "XamaBlur" }, Lighting)
 
--- Twinkling stars (square dots) -------------------------------------------
-local function addStars(panel, count)
-	local holder = new("Frame", {
-		Name = "Stars",
-		Size = UDim2.fromScale(1, 1),
-		BackgroundTransparency = 1,
-		ClipsDescendants = true,
-		BorderSizePixel = 0,
-		ZIndex = 0,
-	}, panel)
-
-	for _ = 1, count do
-		local s = rng:NextNumber(1.5, 3)
-		local star = new("Frame", {
-			Size = UDim2.fromOffset(s, s),
-			Position = UDim2.fromScale(rng:NextNumber(), rng:NextNumber()),
-			BackgroundColor3 = (rng:NextInteger(1, 3) == 1) and C.Light or Color3.new(1, 1, 1),
-			BackgroundTransparency = rng:NextNumber(0.05, 0.4),
-			BorderSizePixel = 0,
-			ZIndex = 0,
-		}, holder)
-
-		TweenService:Create(
-			star,
-			TweenInfo.new(rng:NextNumber(0.8, 2.5), Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true, rng:NextNumber(0, 2)),
-			{ BackgroundTransparency = 0.95 }
-		):Play()
-	end
-end
-
--- Panel -----------------------------------------------------------------
-local function glassPanel(name, size, position, starCount)
-	local panel = new("Frame", {
+-- Window: dark body, thin red border, soft red glow behind it ----------------
+-- Returns (wrapper, body). The wrapper is what gets moved / scaled / shown;
+-- everything you put inside the window goes into body.
+local function makeWindow(name, size, position)
+	local wrap = new("Frame", {
 		Name = name,
 		Size = size,
 		Position = position,
 		AnchorPoint = Vector2.new(0.5, 0.5),
-		BackgroundColor3 = Color3.new(1, 1, 1),
-		BackgroundTransparency = 0.05,
+		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
-		ClipsDescendants = true,
 		Visible = false,
 	}, gui)
-	corner(panel)
-	new("UIGradient", {
-		Color = ColorSequence.new({
-			ColorSequenceKeypoint.new(0, C.Navy),
-			ColorSequenceKeypoint.new(1, C.Dark),
-		}),
-		Rotation = 60,
-	}, panel)
-	glassStroke(panel, 1.5)
 
-	addStars(panel, starCount or 35)
+	-- subtle glow: a few faint, slightly larger red layers behind the body
+	local glowAlpha = { 0.88, 0.92, 0.95, 0.975 }
+	for i, alpha in ipairs(glowAlpha) do
+		local pad = i * 3
+		local glow = new("Frame", {
+			Name = "Glow" .. i,
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.new(1, pad * 2, 1, pad * 2),
+			BackgroundColor3 = C.Accent,
+			BackgroundTransparency = alpha,
+			BorderSizePixel = 0,
+			ZIndex = 0,
+		}, wrap)
+		corner(glow, 4 + pad)
+		onAccent(function()
+			glow.BackgroundColor3 = C.Accent
+		end)
+	end
 
-	local shine = new("Frame", {
-		Name = "Shine",
-		Size = UDim2.new(1, 0, 0.35, 0),
+	local body = new("Frame", {
+		Name = "Body",
+		Size = UDim2.fromScale(1, 1),
 		BackgroundColor3 = Color3.new(1, 1, 1),
 		BorderSizePixel = 0,
-		ZIndex = 0,
-	}, panel)
+		ClipsDescendants = true,
+		ZIndex = 1,
+	}, wrap)
+	corner(body, 4)
 	new("UIGradient", {
-		Transparency = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, 0.9),
-			NumberSequenceKeypoint.new(1, 1),
+		Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, Color3.fromRGB(20, 20, 22)),
+			ColorSequenceKeypoint.new(1, Color3.fromRGB(8, 8, 9)),
 		}),
 		Rotation = 90,
-	}, shine)
+	}, body)
 
-	new("UIScale", { Scale = 1 }, panel)
-	return panel
+	local stroke = new("UIStroke", {
+		Color = C.Accent,
+		Thickness = 1,
+		Transparency = 0.1,
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+	}, body)
+	onAccent(function()
+		stroke.Color = C.Accent
+	end)
+
+	new("UIScale", { Scale = 1 }, wrap)
+	return wrap, body
 end
 
 local function openPanel(panel)
 	local scale = panel:FindFirstChildOfClass("UIScale")
-	scale.Scale = 0.85
+	local base = panel:GetAttribute("BaseScale") or 1
+	scale.Scale = base * 0.92
 	panel.Visible = true
-	tween(scale, 0.35, { Scale = 1 }, Enum.EasingStyle.Back)
+	tween(scale, 0.25, { Scale = base }, Enum.EasingStyle.Back)
 end
 
 local function closePanel(panel, callback)
 	local scale = panel:FindFirstChildOfClass("UIScale")
-	tween(scale, 0.25, { Scale = 0.88 })
-	task.delay(0.27, function()
+	local base = panel:GetAttribute("BaseScale") or 1
+	tween(scale, 0.18, { Scale = base * 0.94 })
+	task.delay(0.2, function()
 		panel.Visible = false
 		if callback then
 			callback()
@@ -286,76 +266,40 @@ local function makeButton(parent, text, size, position, color)
 		Size = size,
 		Position = position or UDim2.new(),
 		BackgroundColor3 = base,
-		BackgroundTransparency = 0,
 		AutoButtonColor = false,
-		Font = Enum.Font.GothamBold,
-		TextSize = 14,
+		Font = Enum.Font.GothamMedium,
+		TextSize = 12,
 		TextColor3 = C.Text,
-		TextStrokeTransparency = 0.8,
 		BorderSizePixel = 0,
 	}, parent)
+	corner(btn, 3)
 
 	local stroke = new("UIStroke", {
-		Color = C.Light,
-		Transparency = 0.3,
+		Color = C.Dim,
 		Thickness = 1,
 		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
 	}, btn)
-
-	local scale = new("UIScale", { Scale = 1 }, btn)
-
 	onAccent(function()
-		stroke.Color = C.Light
+		stroke.Color = C.Dim
 	end)
 
 	btn.MouseEnter:Connect(function()
-		tween(btn, 0.15, { BackgroundColor3 = C.BtnHover })
-		tween(stroke, 0.15, { Transparency = 0 })
+		tween(btn, 0.12, { BackgroundColor3 = C.BtnHover })
+		tween(stroke, 0.12, { Color = C.Accent })
 	end)
 	btn.MouseLeave:Connect(function()
-		tween(btn, 0.15, { BackgroundColor3 = base })
-		tween(stroke, 0.15, { Transparency = 0.3 })
-		tween(scale, 0.1, { Scale = 1 })
+		tween(btn, 0.12, { BackgroundColor3 = base })
+		tween(stroke, 0.12, { Color = C.Dim })
 	end)
 	btn.MouseButton1Down:Connect(function()
-		tween(scale, 0.08, { Scale = 0.95 })
+		tween(btn, 0.06, { BackgroundColor3 = C.Dim })
 	end)
 	btn.MouseButton1Up:Connect(function()
-		tween(scale, 0.12, { Scale = 1 }, Enum.EasingStyle.Back)
+		tween(btn, 0.1, { BackgroundColor3 = C.BtnHover })
 	end)
 
 	return btn
 end
-
--- 1) LOADING SCREEN -----------------------------------------------------
-local loadPanel = glassPanel("Loading", UDim2.fromOffset(380, 190), UDim2.fromScale(0.5, 0.5), 40)
-
-label(loadPanel, "XAMA", UDim2.new(1, 0, 0, 44), UDim2.fromOffset(0, 24),
-	Enum.Font.GothamBlack, 38, C.Text)
-
-local loadStatus = label(loadPanel, "Starting...", UDim2.new(1, 0, 0, 20), UDim2.fromOffset(0, 86),
-	Enum.Font.GothamMedium, 15, C.SubText)
-
-local barBack = new("Frame", {
-	Size = UDim2.new(1, -60, 0, 8),
-	Position = UDim2.fromOffset(30, 128),
-	BackgroundColor3 = C.Off,
-	BackgroundTransparency = 0,
-	BorderSizePixel = 0,
-}, loadPanel)
-
-local barFill = new("Frame", {
-	Size = UDim2.fromScale(0, 1),
-	BackgroundColor3 = Color3.new(1, 1, 1),
-	BorderSizePixel = 0,
-}, barBack)
-local barGrad = new("UIGradient", {}, barFill)
-onAccent(function()
-	barGrad.Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, C.Light),
-		ColorSequenceKeypoint.new(1, C.Accent),
-	})
-end)
 
 -- SETTINGS (shared by the engines and the UI) ------------------------------
 local S = {
@@ -449,6 +393,19 @@ function Tracker.Release()
 	end
 end
 
+local function playersAreTeammates(a, b)
+	if not a or not b then return false end
+	-- Prefer Roblox Team instances. TeamColor is a fallback for games that
+	-- assign teams by color instead of assigning the Team property.
+	if a.Team ~= nil and b.Team ~= nil then
+		return a.Team == b.Team
+	end
+	if not a.Neutral and not b.Neutral then
+		return a.TeamColor == b.TeamColor
+	end
+	return false
+end
+
 local function isValidTarget(hum, ignoreTeam)
 	local model = hum.Parent
 	if not model or model == player.Character then
@@ -459,7 +416,7 @@ local function isValidTarget(hum, ignoreTeam)
 	end
 	local owner = Players:GetPlayerFromCharacter(model)
 	if owner then
-		if not ignoreTeam and S.TeamCheck and owner.Team ~= nil and owner.Team == player.Team then
+		if not ignoreTeam and S.TeamCheck and playersAreTeammates(owner, player) then
 			return false
 		end
 	elseif not S.IncludeNPCs then
@@ -979,7 +936,7 @@ do
 	end
 end
 
--- UI CONTROLS -----------------------------------------------------------
+-- UI CONTROLS (compact) -------------------------------------------------
 local orderCounters = setmetatable({}, { __mode = "k" })
 
 local function nextOrder(parent)
@@ -987,72 +944,120 @@ local function nextOrder(parent)
 	return orderCounters[parent]
 end
 
--- A titled card inside a column
+-- tween (or instantly set) a few properties
+local function apply(obj, props, instant)
+	if instant then
+		for k, v in pairs(props) do
+			obj[k] = v
+		end
+	else
+		tween(obj, 0.15, props)
+	end
+end
+
+-- thin separator along the bottom of a row
+local function rowLine(row)
+	new("Frame", {
+		Name = "Sep",
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.new(0, 0, 1, 0),
+		Size = UDim2.new(1, 0, 0, 1),
+		BackgroundColor3 = C.Line,
+		BorderSizePixel = 0,
+	}, row)
+end
+
+-- A compact boxed group with a small red title
 local function section(column, title)
-	local holder = new("Frame", {
-		Size = UDim2.new(1, 0, 0, 0),
-		AutomaticSize = Enum.AutomaticSize.Y,
-		BackgroundTransparency = 1,
-		LayoutOrder = nextOrder(column),
-	}, column)
-	new("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, holder)
-
-	local head = label(holder, title, UDim2.new(1, 0, 0, 18), nil,
-		Enum.Font.GothamBold, 14, C.SubText, Enum.TextXAlignment.Left)
-	head.LayoutOrder = 1
-
 	local card = new("Frame", {
 		Size = UDim2.new(1, 0, 0, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
-		BackgroundColor3 = C.Dark,
-		BackgroundTransparency = 0.2,
+		BackgroundColor3 = C.Panel,
 		BorderSizePixel = 0,
-		LayoutOrder = 2,
-	}, holder)
-	local cardStroke = new("UIStroke", {
-		Color = C.Light,
-		Transparency = 0.7,
+		LayoutOrder = nextOrder(column),
+	}, column)
+	corner(card, 3)
+	new("UIStroke", {
+		Color = C.Border,
 		Thickness = 1,
 		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
 	}, card)
-	onAccent(function()
-		cardStroke.Color = C.Light
-	end)
 	new("UIPadding", {
-		PaddingTop = UDim.new(0, 10),
-		PaddingBottom = UDim.new(0, 10),
-		PaddingLeft = UDim.new(0, 12),
-		PaddingRight = UDim.new(0, 12),
+		PaddingLeft = UDim.new(0, 8),
+		PaddingRight = UDim.new(0, 8),
+		PaddingBottom = UDim.new(0, 3),
 	}, card)
-	new("UIListLayout", { Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder }, card)
+	new("UIListLayout", { Padding = UDim.new(0, 0), SortOrder = Enum.SortOrder.LayoutOrder }, card)
+
+	local head = new("Frame", {
+		Size = UDim2.new(1, 0, 0, 20),
+		BackgroundTransparency = 1,
+		LayoutOrder = 0,
+	}, card)
+	local titleLabel = label(head, string.upper(title), UDim2.new(1, 0, 1, 0), nil,
+		Enum.Font.GothamBold, 11, C.Accent, Enum.TextXAlignment.Left)
+	local headLine = new("Frame", {
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.new(0, 0, 1, 0),
+		Size = UDim2.new(1, 0, 0, 1),
+		BackgroundColor3 = C.Accent,
+		BackgroundTransparency = 0.55,
+		BorderSizePixel = 0,
+	}, head)
+	onAccent(function()
+		titleLabel.TextColor3 = C.Accent
+		headLine.BackgroundColor3 = C.Accent
+	end)
 	return card
 end
 
+-- Checkbox with a red checkmark
 local function checkbox(card, text, default, callback, keyText)
 	local row = new("Frame", {
-		Size = UDim2.new(1, 0, 0, 22),
+		Size = UDim2.new(1, 0, 0, 24),
 		BackgroundTransparency = 1,
 		LayoutOrder = nextOrder(card),
 	}, card)
+	rowLine(row)
 
 	local box = new("Frame", {
-		Size = UDim2.fromOffset(16, 16),
-		Position = UDim2.new(0, 0, 0.5, -8),
+		Size = UDim2.fromOffset(12, 12),
+		Position = UDim2.fromOffset(0, 6),
 		BackgroundColor3 = C.Off,
 		BorderSizePixel = 0,
 	}, row)
+	corner(box, 2)
 	local boxStroke = new("UIStroke", {
-		Color = C.Light,
-		Transparency = 0.4,
+		Color = C.Border,
 		Thickness = 1,
 		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
 	}, box)
 
-	label(row, text, UDim2.new(1, -70, 1, 0), UDim2.fromOffset(26, 0),
-		Enum.Font.GothamMedium, 14, C.Text, Enum.TextXAlignment.Left)
+	-- the checkmark is two small rotated bars
+	local checkShort = new("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromOffset(3.5, 7.5),
+		Size = UDim2.fromOffset(2, 5),
+		Rotation = -45,
+		BackgroundColor3 = C.Accent,
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+	}, box)
+	local checkLong = new("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromOffset(7.5, 6),
+		Size = UDim2.fromOffset(2, 8),
+		Rotation = 45,
+		BackgroundColor3 = C.Accent,
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+	}, box)
+
+	label(row, text, UDim2.new(1, -60, 1, -1), UDim2.fromOffset(20, 0),
+		Enum.Font.GothamMedium, 12, C.Text, Enum.TextXAlignment.Left)
 	if keyText then
-		label(row, keyText, UDim2.fromOffset(40, 22), UDim2.new(1, -40, 0, 0),
-			Enum.Font.GothamBold, 13, C.Text, Enum.TextXAlignment.Right)
+		label(row, "[" .. keyText .. "]", UDim2.fromOffset(34, 23), UDim2.new(1, -34, 0, 0),
+			Enum.Font.GothamMedium, 11, C.SubText, Enum.TextXAlignment.Right)
 	end
 
 	local hit = new("TextButton", {
@@ -1064,14 +1069,16 @@ local function checkbox(card, text, default, callback, keyText)
 
 	local obj = { Value = default }
 
-	local function render()
-		tween(box, 0.15, { BackgroundColor3 = obj.Value and C.Accent or C.Off })
-		tween(boxStroke, 0.15, { Transparency = obj.Value and 0 or 0.4 })
+	local function render(instant)
+		local on = obj.Value
+		apply(boxStroke, { Color = on and C.Accent or C.Border }, instant)
+		apply(checkShort, { BackgroundTransparency = on and 0 or 1, BackgroundColor3 = C.Accent }, instant)
+		apply(checkLong, { BackgroundTransparency = on and 0 or 1, BackgroundColor3 = C.Accent }, instant)
 	end
 
 	function obj.Set(v, silent)
 		obj.Value = v
-		render()
+		render(false)
 		if callback and not silent then
 			callback(v)
 		end
@@ -1082,69 +1089,128 @@ local function checkbox(card, text, default, callback, keyText)
 	end)
 
 	onAccent(function()
-		box.BackgroundColor3 = obj.Value and C.Accent or C.Off
-		boxStroke.Color = C.Light
+		render(true)
 	end)
 
 	return obj
 end
 
-local function slider(card, text, min, max, default, step, fmt, callback)
+-- Red toggle switch (same arguments as checkbox)
+local function toggle(card, text, default, callback, keyText)
 	local row = new("Frame", {
-		Size = UDim2.new(1, 0, 0, 44),
+		Size = UDim2.new(1, 0, 0, 24),
 		BackgroundTransparency = 1,
 		LayoutOrder = nextOrder(card),
 	}, card)
+	rowLine(row)
 
-	label(row, text, UDim2.new(0.6, 0, 0, 18), UDim2.fromOffset(0, 0),
-		Enum.Font.GothamMedium, 14, C.Text, Enum.TextXAlignment.Left)
-	local valueLabel = label(row, "", UDim2.new(0.4, 0, 0, 18), UDim2.new(0.6, 0, 0, 0),
-		Enum.Font.GothamBold, 13, C.Light, Enum.TextXAlignment.Right)
-
-	local minus = new("TextButton", {
-		Size = UDim2.fromOffset(18, 18),
-		Position = UDim2.fromOffset(0, 22),
-		BackgroundTransparency = 1,
-		Text = "-",
-		Font = Enum.Font.GothamBold,
-		TextSize = 18,
-		TextColor3 = C.Text,
-	}, row)
-	local plus = new("TextButton", {
-		Size = UDim2.fromOffset(18, 18),
-		Position = UDim2.new(1, -18, 0, 22),
-		BackgroundTransparency = 1,
-		Text = "+",
-		Font = Enum.Font.GothamBold,
-		TextSize = 18,
-		TextColor3 = C.Text,
-	}, row)
+	label(row, text, UDim2.new(1, -70, 1, -1), UDim2.fromOffset(0, 0),
+		Enum.Font.GothamMedium, 12, C.Text, Enum.TextXAlignment.Left)
+	if keyText then
+		label(row, "[" .. keyText .. "]", UDim2.fromOffset(34, 23), UDim2.new(1, -66, 0, 0),
+			Enum.Font.GothamMedium, 11, C.SubText, Enum.TextXAlignment.Right)
+	end
 
 	local track = new("Frame", {
-		Size = UDim2.new(1, -48, 0, 6),
-		Position = UDim2.fromOffset(24, 29),
+		Size = UDim2.fromOffset(26, 12),
+		Position = UDim2.new(1, -26, 0, 5),
 		BackgroundColor3 = C.Off,
 		BorderSizePixel = 0,
 	}, row)
+	new("UICorner", { CornerRadius = UDim.new(1, 0) }, track)
+	local trackStroke = new("UIStroke", {
+		Color = C.Border,
+		Thickness = 1,
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+	}, track)
+	local knob = new("Frame", {
+		Size = UDim2.fromOffset(8, 8),
+		Position = UDim2.fromOffset(2, 2),
+		BackgroundColor3 = C.SubText,
+		BorderSizePixel = 0,
+	}, track)
+	new("UICorner", { CornerRadius = UDim.new(1, 0) }, knob)
+
+	local hit = new("TextButton", {
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		Text = "",
+		ZIndex = 5,
+	}, row)
+
+	local obj = { Value = default }
+
+	local function render(instant)
+		local on = obj.Value
+		apply(track, { BackgroundColor3 = on and C.Accent or C.Off }, instant)
+		apply(trackStroke, { Color = on and C.Accent or C.Border }, instant)
+		apply(knob, {
+			Position = UDim2.fromOffset(on and 16 or 2, 2),
+			BackgroundColor3 = on and Color3.new(1, 1, 1) or C.SubText,
+		}, instant)
+	end
+
+	function obj.Set(v, silent)
+		obj.Value = v
+		render(false)
+		if callback and not silent then
+			callback(v)
+		end
+	end
+
+	hit.MouseButton1Click:Connect(function()
+		obj.Set(not obj.Value)
+	end)
+
+	onAccent(function()
+		render(true)
+	end)
+
+	return obj
+end
+
+-- Slider: label + value on top, thin track with a red fill underneath
+local function slider(card, text, min, max, default, step, fmt, callback)
+	local row = new("Frame", {
+		Size = UDim2.new(1, 0, 0, 30),
+		BackgroundTransparency = 1,
+		LayoutOrder = nextOrder(card),
+	}, card)
+	rowLine(row)
+
+	label(row, text, UDim2.new(0.6, 0, 0, 14), UDim2.fromOffset(0, 3),
+		Enum.Font.GothamMedium, 12, C.Text, Enum.TextXAlignment.Left)
+	local valueLabel = label(row, "", UDim2.new(0.4, 0, 0, 14), UDim2.new(0.6, 0, 0, 3),
+		Enum.Font.GothamMedium, 11, C.Light, Enum.TextXAlignment.Right)
+
+	local track = new("Frame", {
+		Size = UDim2.new(1, -6, 0, 4),
+		Position = UDim2.fromOffset(3, 21),
+		BackgroundColor3 = C.Off,
+		BorderSizePixel = 0,
+	}, row)
+	corner(track, 2)
 
 	local fill = new("Frame", {
 		Size = UDim2.fromScale(0, 1),
 		BackgroundColor3 = C.Accent,
 		BorderSizePixel = 0,
 	}, track)
+	corner(fill, 2)
 
 	local knob = new("Frame", {
-		Size = UDim2.fromOffset(10, 14),
+		Size = UDim2.fromOffset(6, 10),
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.new(0, 0, 0.5, 0),
 		BackgroundColor3 = Color3.new(1, 1, 1),
 		BorderSizePixel = 0,
 		ZIndex = 3,
 	}, track)
+	corner(knob, 2)
 
 	local hit = new("TextButton", {
-		Size = UDim2.new(1, -44, 0, 22),
-		Position = UDim2.fromOffset(22, 21),
+		Size = UDim2.new(1, 0, 0, 16),
+		Position = UDim2.fromOffset(0, 15),
 		BackgroundTransparency = 1,
 		Text = "",
 		ZIndex = 5,
@@ -1193,21 +1259,16 @@ local function slider(card, text, min, max, default, step, fmt, callback)
 		end
 	end))
 
-	minus.MouseButton1Click:Connect(function()
-		obj.Set(obj.Value - step)
-	end)
-	plus.MouseButton1Click:Connect(function()
-		obj.Set(obj.Value + step)
-	end)
-
 	onAccent(function()
 		fill.BackgroundColor3 = C.Accent
+		valueLabel.TextColor3 = C.Light
 	end)
 
 	obj.Set(default, true)
 	return obj
 end
 
+-- Dropdown: label on the left, small selector on the right
 local function dropdown(card, text, options, default, callback)
 	local holder = new("Frame", {
 		Size = UDim2.new(1, 0, 0, 0),
@@ -1215,53 +1276,64 @@ local function dropdown(card, text, options, default, callback)
 		BackgroundTransparency = 1,
 		LayoutOrder = nextOrder(card),
 	}, card)
-	new("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }, holder)
+	new("UIListLayout", {
+		Padding = UDim.new(0, 2),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		HorizontalAlignment = Enum.HorizontalAlignment.Right,
+	}, holder)
 
-	local title = label(holder, text, UDim2.new(1, 0, 0, 18), nil,
-		Enum.Font.GothamMedium, 14, C.Text, Enum.TextXAlignment.Left)
-	title.LayoutOrder = 1
+	local row = new("Frame", {
+		Size = UDim2.new(1, 0, 0, 24),
+		BackgroundTransparency = 1,
+		LayoutOrder = 1,
+	}, holder)
+	rowLine(row)
+
+	label(row, text, UDim2.new(1, -104, 1, -1), UDim2.fromOffset(0, 0),
+		Enum.Font.GothamMedium, 12, C.Text, Enum.TextXAlignment.Left)
 
 	local selector = new("TextButton", {
-		Size = UDim2.new(1, 0, 0, 28),
+		Size = UDim2.fromOffset(98, 18),
+		Position = UDim2.new(1, -98, 0, 3),
 		BackgroundColor3 = C.Off,
-		BackgroundTransparency = 0,
 		AutoButtonColor = false,
 		Text = default,
 		Font = Enum.Font.GothamMedium,
-		TextSize = 14,
+		TextSize = 11,
 		TextColor3 = C.Text,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		BorderSizePixel = 0,
-		LayoutOrder = 2,
-	}, holder)
-	new("UIPadding", { PaddingLeft = UDim.new(0, 10) }, selector)
+	}, row)
+	corner(selector, 3)
+	new("UIPadding", { PaddingLeft = UDim.new(0, 6) }, selector)
 	local selStroke = new("UIStroke", {
-		Color = C.Light,
-		Transparency = 0.4,
+		Color = C.Border,
 		Thickness = 1,
 		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
 	}, selector)
+	local arrow = label(selector, "v", UDim2.fromOffset(16, 18), UDim2.new(1, -18, 0, 0),
+		Enum.Font.GothamBold, 10, C.Accent, Enum.TextXAlignment.Center)
 	onAccent(function()
-		selStroke.Color = C.Light
+		arrow.TextColor3 = C.Accent
 	end)
-	local arrow = label(selector, "v", UDim2.fromOffset(24, 28), UDim2.new(1, -28, 0, 0),
-		Enum.Font.GothamBold, 13, C.Light, Enum.TextXAlignment.Center)
 
 	local list = new("Frame", {
-		Size = UDim2.new(1, 0, 0, 0),
+		Size = UDim2.new(0, 98, 0, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
 		BackgroundColor3 = C.Dark,
-		BackgroundTransparency = 0,
 		BorderSizePixel = 0,
 		Visible = false,
-		LayoutOrder = 3,
+		LayoutOrder = 2,
 	}, holder)
-	new("UIStroke", {
-		Color = C.Light,
-		Transparency = 0.6,
+	corner(list, 3)
+	local listStroke = new("UIStroke", {
+		Color = C.Dim,
 		Thickness = 1,
 		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
 	}, list)
+	onAccent(function()
+		listStroke.Color = C.Dim
+	end)
 	new("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder }, list)
 
 	local obj = { Value = default }
@@ -1271,6 +1343,7 @@ local function dropdown(card, text, options, default, callback)
 		selector.Text = v
 		list.Visible = false
 		arrow.Text = "v"
+		tween(selStroke, 0.12, { Color = C.Border })
 		if callback and not silent then
 			callback(v)
 		end
@@ -1278,20 +1351,21 @@ local function dropdown(card, text, options, default, callback)
 
 	for i, option in ipairs(options) do
 		local opt = new("TextButton", {
-			Size = UDim2.new(1, 0, 0, 26),
-			BackgroundColor3 = C.BtnHover,
+			Size = UDim2.new(1, 0, 0, 20),
+			BackgroundColor3 = C.Dim,
 			BackgroundTransparency = 1,
 			Text = option,
 			Font = Enum.Font.GothamMedium,
-			TextSize = 14,
+			TextSize = 11,
 			TextColor3 = C.Text,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			AutoButtonColor = false,
 			BorderSizePixel = 0,
 			LayoutOrder = i,
 		}, list)
-		new("UIPadding", { PaddingLeft = UDim.new(0, 10) }, opt)
+		new("UIPadding", { PaddingLeft = UDim.new(0, 6) }, opt)
 		opt.MouseEnter:Connect(function()
+			opt.BackgroundColor3 = C.Dim
 			opt.BackgroundTransparency = 0
 		end)
 		opt.MouseLeave:Connect(function()
@@ -1305,75 +1379,102 @@ local function dropdown(card, text, options, default, callback)
 	selector.MouseButton1Click:Connect(function()
 		list.Visible = not list.Visible
 		arrow.Text = list.Visible and "^" or "v"
+		tween(selStroke, 0.12, { Color = list.Visible and C.Accent or C.Border })
 	end)
 
 	return obj
 end
 
 local function actionButton(card, text, callback)
-	local btn = makeButton(card, text, UDim2.new(1, 0, 0, 30), nil)
-	btn.LayoutOrder = nextOrder(card)
+	local row = new("Frame", {
+		Size = UDim2.new(1, 0, 0, 28),
+		BackgroundTransparency = 1,
+		LayoutOrder = nextOrder(card),
+	}, card)
+	local btn = makeButton(row, text, UDim2.new(1, 0, 0, 20), UDim2.fromOffset(0, 4))
 	btn.MouseButton1Click:Connect(callback)
 	return btn
 end
 
 -- 2) MAIN HUB -----------------------------------------------------------
-local FULL_SIZE = UDim2.fromOffset(720, 470)
-local MINI_SIZE = UDim2.fromOffset(720, 42)
-local SHIFT_Y = (470 - 42) / 2
+local FULL_SIZE = UDim2.fromOffset(680, 420)
+local MINI_SIZE = UDim2.fromOffset(680, 26)
+local SHIFT_Y = (420 - 26) / 2
 
-local main = glassPanel("Main", FULL_SIZE, UDim2.fromScale(0.5, 0.5), 70)
+local main, mainBody = makeWindow("Main", FULL_SIZE, UDim2.fromScale(0.5, 0.5))
 local unlocked = false
+
+-- Pick a comfortable size for this screen (changeable in Settings > UI Size)
+local viewport = (workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize) or Vector2.new(1280, 720)
+local defaultScale = math.clamp(math.min(viewport.X / 760, viewport.Y / 480), 0.6, 1.45)
+main:SetAttribute("BaseScale", defaultScale)
+
+local function setUiScale(s)
+	main:SetAttribute("BaseScale", s)
+	local sc = main:FindFirstChildOfClass("UIScale")
+	if sc and main.Visible then
+		tween(sc, 0.15, { Scale = s })
+	end
+end
 
 -- Top bar
 local topBar = new("Frame", {
 	Name = "TopBar",
-	Size = UDim2.new(1, 0, 0, 42),
+	Size = UDim2.new(1, 0, 0, 26),
 	BackgroundTransparency = 1,
-}, main)
+}, mainBody)
 
 local logo = new("Frame", {
-	Size = UDim2.fromOffset(26, 26),
-	Position = UDim2.fromOffset(12, 8),
+	Size = UDim2.fromOffset(14, 14),
+	Position = UDim2.fromOffset(8, 6),
 	BackgroundColor3 = C.Accent,
-	BackgroundTransparency = 0,
 	BorderSizePixel = 0,
 }, topBar)
+corner(logo, 3)
 onAccent(function()
 	logo.BackgroundColor3 = C.Accent
 end)
-label(logo, "X", UDim2.fromScale(1, 1), nil, Enum.Font.GothamBlack, 16, Color3.new(0, 0, 0))
+label(logo, "X", UDim2.fromScale(1, 1), nil, Enum.Font.GothamBlack, 10, Color3.new(0, 0, 0))
 
-label(topBar, "XAMA", UDim2.fromOffset(70, 42), UDim2.fromOffset(46, 0),
-	Enum.Font.GothamBlack, 20, C.Text, Enum.TextXAlignment.Left)
-label(topBar, "v2.0", UDim2.fromOffset(40, 42), UDim2.fromOffset(112, 0),
-	Enum.Font.GothamMedium, 13, C.SubText, Enum.TextXAlignment.Left)
+label(topBar, "XAMA", UDim2.fromOffset(44, 26), UDim2.fromOffset(28, 0),
+	Enum.Font.GothamBlack, 12, C.Text, Enum.TextXAlignment.Left)
+label(topBar, "v2.0", UDim2.fromOffset(30, 26), UDim2.fromOffset(72, 0),
+	Enum.Font.GothamMedium, 10, C.SubText, Enum.TextXAlignment.Left)
 
-local minBtn = makeButton(topBar, "-", UDim2.fromOffset(28, 28), UDim2.new(1, -72, 0, 7))
-minBtn.TextSize = 20
-local closeBtn = makeButton(topBar, "X", UDim2.fromOffset(28, 28), UDim2.new(1, -38, 0, 7), C.Bad)
+local minBtn = makeButton(topBar, "-", UDim2.fromOffset(18, 18), UDim2.new(1, -46, 0, 4))
+local closeBtn = makeButton(topBar, "x", UDim2.fromOffset(18, 18), UDim2.new(1, -24, 0, 4), C.Bad)
 
 local topLine = new("Frame", {
-	Size = UDim2.new(1, -24, 0, 1),
-	Position = UDim2.fromOffset(12, 42),
-	BackgroundColor3 = C.Light,
+	Size = UDim2.new(1, 0, 0, 1),
+	Position = UDim2.fromOffset(0, 26),
+	BackgroundColor3 = C.Accent,
 	BackgroundTransparency = 0.5,
 	BorderSizePixel = 0,
-}, main)
+}, mainBody)
 onAccent(function()
-	topLine.BackgroundColor3 = C.Light
+	topLine.BackgroundColor3 = C.Accent
 end)
 
 local content = new("Frame", {
 	Name = "Content",
-	Size = UDim2.new(1, 0, 1, -43),
-	Position = UDim2.fromOffset(0, 43),
+	Size = UDim2.new(1, 0, 1, -27),
+	Position = UDim2.fromOffset(0, 27),
 	BackgroundTransparency = 1,
-}, main)
+}, mainBody)
 
--- Status line
-local footer = label(content, "Status: Ready", UDim2.new(1, -202, 0, 18), UDim2.new(0, 192, 1, -28),
-	Enum.Font.GothamMedium, 13, C.SubText, Enum.TextXAlignment.Left)
+-- Status line along the bottom
+local footerBar = new("Frame", {
+	Size = UDim2.new(1, 0, 0, 20),
+	Position = UDim2.new(0, 0, 1, -20),
+	BackgroundTransparency = 1,
+}, content)
+new("Frame", {
+	Size = UDim2.new(1, 0, 0, 1),
+	BackgroundColor3 = C.Line,
+	BorderSizePixel = 0,
+}, footerBar)
+local footer = label(footerBar, "Status: Ready", UDim2.new(1, -16, 1, 0), UDim2.fromOffset(8, 0),
+	Enum.Font.GothamMedium, 11, C.SubText, Enum.TextXAlignment.Left)
 
 local function notify(text)
 	footer.Text = "Status: " .. text
@@ -1381,26 +1482,29 @@ end
 
 -- Sidebar + pages
 local sidebar = new("Frame", {
-	Size = UDim2.new(0, 166, 1, -20),
-	Position = UDim2.fromOffset(10, 10),
-	BackgroundTransparency = 1,
-}, content)
-
-local sideLine = new("Frame", {
-	Size = UDim2.new(0, 1, 1, -20),
-	Position = UDim2.fromOffset(181, 10),
-	BackgroundColor3 = C.Light,
-	BackgroundTransparency = 0.6,
+	Size = UDim2.new(0, 128, 1, -32),
+	Position = UDim2.fromOffset(6, 6),
+	BackgroundColor3 = C.Panel,
 	BorderSizePixel = 0,
 }, content)
-onAccent(function()
-	sideLine.BackgroundColor3 = C.Light
-end)
+corner(sidebar, 3)
+new("UIStroke", {
+	Color = C.Border,
+	Thickness = 1,
+	ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+}, sidebar)
+new("UIPadding", {
+	PaddingTop = UDim.new(0, 4),
+	PaddingBottom = UDim.new(0, 4),
+	PaddingLeft = UDim.new(0, 4),
+	PaddingRight = UDim.new(0, 4),
+}, sidebar)
+new("UIListLayout", { Padding = UDim.new(0, 2), SortOrder = Enum.SortOrder.LayoutOrder }, sidebar)
 
 local pageHost = new("Frame", {
 	Name = "Pages",
-	Position = UDim2.fromOffset(192, 10),
-	Size = UDim2.new(1, -202, 1, -48),
+	Position = UDim2.fromOffset(142, 6),
+	Size = UDim2.new(1, -148, 1, -32),
 	BackgroundTransparency = 1,
 	ClipsDescendants = true,
 }, content)
@@ -1423,113 +1527,240 @@ local function newPage(name, topInset)
 		Size = UDim2.new(1, 0, 1, -topInset),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
-		ScrollBarThickness = 3,
-		ScrollBarImageColor3 = C.Light,
+		ScrollBarThickness = 2,
+		ScrollBarImageColor3 = C.Accent,
 		CanvasSize = UDim2.new(),
 		AutomaticCanvasSize = Enum.AutomaticSize.Y,
 	}, page)
+	onAccent(function()
+		scroll.ScrollBarImageColor3 = C.Accent
+	end)
 
-	local function column(scaleX, offsetX)
+	local function column(scaleX, offsetX, widthOffset)
 		local col = new("Frame", {
-			Size = UDim2.new(0.5, -8, 0, 0),
+			Size = UDim2.new(0.5, widthOffset, 0, 0),
 			Position = UDim2.new(scaleX, offsetX, 0, 0),
 			AutomaticSize = Enum.AutomaticSize.Y,
 			BackgroundTransparency = 1,
 		}, scroll)
-		new("UIListLayout", { Padding = UDim.new(0, 14), SortOrder = Enum.SortOrder.LayoutOrder }, col)
+		new("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, col)
 		return col
 	end
 
 	pages[name] = page
-	return page, column(0, 0), column(0.5, 2)
+	return page, column(0, 0, -4), column(0.5, 4, -8)
+end
+
+-- Tiny vector icons built from frames / strokes (no image ids needed)
+local function paintIcon(icon, color)
+	for _, d in ipairs(icon:GetDescendants()) do
+		if d:IsA("UIStroke") then
+			d.Color = color
+		elseif d:IsA("Frame") and d.BackgroundTransparency < 1 then
+			d.BackgroundColor3 = color
+		end
+	end
+end
+
+local function buildIcon(kind, parent)
+	local icon = new("Frame", {
+		Size = UDim2.fromOffset(14, 14),
+		Position = UDim2.fromOffset(8, 6),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+	}, parent)
+
+	local function rect(x, y, w, h, round)
+		local f = new("Frame", {
+			Position = UDim2.fromOffset(x, y),
+			Size = UDim2.fromOffset(w, h),
+			BackgroundColor3 = C.SubText,
+			BorderSizePixel = 0,
+		}, icon)
+		if round then
+			new("UICorner", { CornerRadius = UDim.new(round, 0) }, f)
+		end
+		return f
+	end
+
+	local function ring(x, y, w, h)
+		local f = new("Frame", {
+			Position = UDim2.fromOffset(x, y),
+			Size = UDim2.fromOffset(w, h),
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+		}, icon)
+		new("UICorner", { CornerRadius = UDim.new(1, 0) }, f)
+		new("UIStroke", {
+			Color = C.SubText,
+			Thickness = 1,
+			ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+		}, f)
+		return f
+	end
+
+	if kind == "main" then
+		rect(0, 0, 6, 6)
+		rect(8, 0, 6, 6)
+		rect(0, 8, 6, 6)
+		rect(8, 8, 6, 6)
+	elseif kind == "combat" then
+		ring(1, 1, 12, 12)
+		rect(6, 6, 2, 2)
+		rect(6, 0, 2, 3)
+		rect(6, 11, 2, 3)
+		rect(0, 6, 3, 2)
+		rect(11, 6, 3, 2)
+	elseif kind == "visuals" then
+		ring(0, 3, 14, 8)
+		rect(5, 5, 4, 4, 1)
+	elseif kind == "movement" then
+		rect(0, 2, 10, 2)
+		rect(4, 6, 10, 2)
+		rect(1, 10, 8, 2)
+	elseif kind == "players" then
+		rect(4, 0, 6, 6, 1)
+		rect(1, 8, 12, 6, 0.5)
+	else -- settings: three little sliders
+		rect(2, 0, 2, 14)
+		rect(6, 0, 2, 14)
+		rect(10, 0, 2, 14)
+		rect(0, 3, 6, 3)
+		rect(4, 8, 6, 3)
+		rect(8, 5, 6, 3)
+	end
+
+	paintIcon(icon, C.SubText)
+	return icon
 end
 
 local function showPage(name)
+	local previous = currentPage
 	currentPage = name
 	for pageName, page in pairs(pages) do
-		page.Visible = (pageName == name)
+		if pageName == name then
+			page.Visible = true
+			if previous ~= name then
+				-- small slide-in when switching tabs
+				page.Position = UDim2.fromOffset(12, 0)
+				tween(page, 0.2, { Position = UDim2.fromOffset(0, 0) })
+			end
+		else
+			page.Visible = false
+		end
 	end
-	for navName, btn in pairs(navButtons) do
-		tween(btn, 0.15, { BackgroundTransparency = (navName == name) and 0.8 or 1 })
+	for navName, nav in pairs(navButtons) do
+		local on = (navName == name)
+		tween(nav.Button, 0.15, { BackgroundTransparency = on and 0.6 or 1 })
+		tween(nav.Bar, 0.15, { BackgroundTransparency = on and 0 or 1 })
+		tween(nav.Label, 0.15, { TextColor3 = on and C.Text or C.SubText })
+		paintIcon(nav.Icon, on and C.Accent or C.SubText)
 	end
 end
 
 local navDefs = {
-	{ "Combat", "Combat & Visuals", "C" },
-	{ "Settings", "Configs & Theming", "S" },
+	{ "Main", "main" },
+	{ "Combat", "combat" },
+	{ "Visuals", "visuals" },
+	{ "Movement", "movement" },
+	{ "Players", "players" },
+	{ "Settings", "settings" },
 }
 
 for i, def in ipairs(navDefs) do
+	local name, iconKind = def[1], def[2]
+
 	local btn = new("TextButton", {
-		Size = UDim2.new(1, 0, 0, 52),
-		Position = UDim2.fromOffset(0, (i - 1) * 60),
+		Size = UDim2.new(1, 0, 0, 26),
 		BackgroundColor3 = C.Accent,
 		BackgroundTransparency = 1,
 		AutoButtonColor = false,
 		Text = "",
 		BorderSizePixel = 0,
+		LayoutOrder = i * 2,
 	}, sidebar)
-	onAccent(function()
-		btn.BackgroundColor3 = C.Accent
-	end)
+	corner(btn, 3)
 
-	local iconBox = new("Frame", {
-		Size = UDim2.fromOffset(34, 34),
-		Position = UDim2.fromOffset(8, 9),
-		BackgroundColor3 = C.Dark,
-		BackgroundTransparency = 0,
+	local bar = new("Frame", {
+		Size = UDim2.new(0, 2, 1, -8),
+		Position = UDim2.fromOffset(0, 4),
+		BackgroundColor3 = C.Accent,
+		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 	}, btn)
-	local iconStroke = new("UIStroke", {
-		Color = C.Light,
-		Transparency = 0.4,
-		Thickness = 1,
-		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
-	}, iconBox)
+
+	local icon = buildIcon(iconKind, btn)
+	local text = label(btn, name, UDim2.new(1, -30, 1, 0), UDim2.fromOffset(30, 0),
+		Enum.Font.GothamMedium, 12, C.SubText, Enum.TextXAlignment.Left)
+
+	navButtons[name] = { Button = btn, Bar = bar, Label = text, Icon = icon }
+
+	-- keep the selected tab red after an accent change
 	onAccent(function()
-		iconStroke.Color = C.Light
+		local on = (currentPage == name)
+		btn.BackgroundColor3 = C.Accent
+		bar.BackgroundColor3 = C.Accent
+		paintIcon(icon, on and C.Accent or C.SubText)
 	end)
-	label(iconBox, def[3], UDim2.fromScale(1, 1), nil, Enum.Font.GothamBlack, 16, C.Text)
 
-	label(btn, def[1], UDim2.new(1, -56, 0, 20), UDim2.fromOffset(52, 9),
-		Enum.Font.GothamBold, 15, C.Text, Enum.TextXAlignment.Left)
-	label(btn, def[2], UDim2.new(1, -56, 0, 16), UDim2.fromOffset(52, 28),
-		Enum.Font.Gotham, 12, C.SubText, Enum.TextXAlignment.Left)
-
-	navButtons[def[1]] = btn
+	btn.MouseEnter:Connect(function()
+		if currentPage ~= name then
+			tween(btn, 0.1, { BackgroundTransparency = 0.88 })
+		end
+	end)
+	btn.MouseLeave:Connect(function()
+		if currentPage ~= name then
+			tween(btn, 0.1, { BackgroundTransparency = 1 })
+		end
+	end)
 	btn.MouseButton1Click:Connect(function()
-		showPage(def[1])
+		showPage(name)
 	end)
+
+	if i < #navDefs then
+		new("Frame", {
+			Size = UDim2.new(1, -8, 0, 1),
+			BackgroundColor3 = C.Line,
+			BorderSizePixel = 0,
+			LayoutOrder = i * 2 + 1,
+		}, sidebar)
+	end
 end
 
 -- Controls we need to reach from other controls (presets, headshot checkbox, ...)
 local ctl = {}
 
+-- Extra tabs (Main / Visuals / Movement / Players); Combat and Settings are created below
+local _, mnLeft, mnRight = newPage("Main", 0)
+local _, vLeft, vRight = newPage("Visuals", 0)
+local _, mvLeft, mvRight = newPage("Movement", 0)
+local _, plLeft, plRight = newPage("Players", 0)
+
 -- PAGE: COMBAT ------------------------------------------------------------
-local combatPage, cLeft, cRight = newPage("Combat", 40)
+local combatPage, cLeft, cRight = newPage("Combat", 26)
 
 local tabRow = new("Frame", {
-	Size = UDim2.new(1, 0, 0, 34),
+	Size = UDim2.new(1, 0, 0, 22),
 	BackgroundTransparency = 1,
 }, combatPage)
 
 local presetTabs = {}
 for i, name in ipairs({ "Legit", "Rage" }) do
 	local b = new("TextButton", {
-		Size = UDim2.fromOffset(100, 28),
-		Position = UDim2.fromOffset((i - 1) * 108, 2),
+		Size = UDim2.fromOffset(72, 20),
+		Position = UDim2.fromOffset((i - 1) * 78, 0),
 		BackgroundColor3 = C.Accent,
-		BackgroundTransparency = 0.9,
+		BackgroundTransparency = 0.92,
 		AutoButtonColor = false,
 		Text = name,
-		Font = Enum.Font.GothamBold,
-		TextSize = 14,
+		Font = Enum.Font.GothamMedium,
+		TextSize = 11,
 		TextColor3 = C.Text,
 		BorderSizePixel = 0,
 	}, tabRow)
+	corner(b, 3)
 	new("UIStroke", {
-		Color = C.Light,
-		Transparency = 0.5,
+		Color = C.Border,
 		Thickness = 1,
 		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
 	}, b)
@@ -1541,7 +1772,12 @@ end
 
 local function highlightTab(name)
 	for tabName, b in pairs(presetTabs) do
-		tween(b, 0.15, { BackgroundTransparency = (tabName == name) and 0.7 or 0.95 })
+		local on = (tabName == name)
+		tween(b, 0.15, { BackgroundTransparency = on and 0.55 or 0.92 })
+		local st = b:FindFirstChildOfClass("UIStroke")
+		if st then
+			tween(st, 0.15, { Color = on and C.Accent or C.Border })
+		end
 	end
 end
 highlightTab("Legit")
@@ -1549,7 +1785,7 @@ highlightTab("Legit")
 -- Aimbot
 local aimCard = section(cLeft, "Aimbot")
 
-ctl.enabled = checkbox(aimCard, "Enabled", false, function(v)
+ctl.enabled = toggle(aimCard, "Enabled", false, function(v)
 	Aim.SetEnabled(v)
 	notify(v and "Aimbot ON (put a target in the circle, Q = lock / release)" or "Aimbot OFF")
 end, "Q")
@@ -1590,7 +1826,7 @@ end)
 -- Combat
 local combatCard = section(cLeft, "Combat")
 
-ctl.silent = checkbox(combatCard, "Silent Aim", false, function(v)
+ctl.silent = toggle(combatCard, "Silent Aim", false, function(v)
 	Bridge.SilentAim = v
 	notify("Silent Aim " .. (v and "ON" or "OFF") .. " (read _G.Xama.SilentAim in your gun script)")
 end)
@@ -1602,7 +1838,7 @@ ctl.hitChance = slider(combatCard, "Hit Chance", 0, 100, 90, 1, "%d%%", function
 end)
 
 -- Discord
-local discordCard = section(cRight, "Discord")
+local discordCard = section(mnRight, "Discord")
 actionButton(discordCard, "Join Discord!", function()
 	notify("Discord: " .. DISCORD_LINK)
 	print("Xama Discord: " .. DISCORD_LINK)
@@ -1644,12 +1880,12 @@ end)
 -- Gun Modifiers
 local gunCard = section(cRight, "Gun Modifiers")
 
-ctl.noRecoil = checkbox(gunCard, "No Recoil", false, function(v)
+ctl.noRecoil = toggle(gunCard, "No Recoil", false, function(v)
 	Bridge.NoRecoil = v
 	notify("No Recoil " .. (v and "ON" or "OFF") .. " (read _G.Xama.NoRecoil in your gun script)")
 end)
 
-ctl.noSpread = checkbox(gunCard, "No Spread", false, function(v)
+ctl.noSpread = toggle(gunCard, "No Spread", false, function(v)
 	Bridge.NoSpread = v
 	notify("No Spread " .. (v and "ON" or "OFF") .. " (read _G.Xama.NoSpread in your gun script)")
 end)
@@ -1684,15 +1920,15 @@ for name, b in pairs(presetTabs) do
 end
 
 -- Visuals are controlled from the Combat page.
-local espCard = section(cLeft, "ESP")
+local espCard = section(vLeft, "ESP")
 
-ctl.chams = checkbox(espCard, "Chams (nearest players)", true, function(v)
+ctl.chams = toggle(espCard, "Chams (nearest players)", true, function(v)
 	S.Chams = v
 	Visuals.Update()
 	notify("Chams " .. (v and "ON" or "OFF"))
 end)
 
-ctl.nameEsp = checkbox(espCard, "Name ESP", false, function(v)
+ctl.nameEsp = toggle(espCard, "Name ESP", false, function(v)
 	S.NameESP = v
 	Visuals.Update()
 	notify("Name ESP " .. (v and "ON" or "OFF"))
@@ -1708,7 +1944,7 @@ ctl.chamsRange = slider(espCard, "Range", 50, 1000, 300, 10, "%d studs", functio
 	Visuals.Update()
 end)
 
-local colorCard = section(cRight, "Chams Colors")
+local colorCard = section(vRight, "Chams Colors")
 
 ctl.fillColor = dropdown(colorCard, "Fill Color", COLOR_NAMES, "Red", function(v)
 	S.FillColor = v
@@ -1860,8 +2096,8 @@ keep(player.CharacterAdded:Connect(function()
 	end
 end))
 
-local flyCard = section(cLeft, "Movement")
-ctl.fly = checkbox(flyCard, "Fly", false, function(v)
+local flyCard = section(mvLeft, "Movement")
+ctl.fly = toggle(flyCard, "Fly", false, function(v)
 	if v then
 		if not startFlying() then
 			ctl.fly.Set(false, true)
@@ -1909,7 +2145,8 @@ local function getClosestOtherPlayer()
 	local closestCharacter, closestHead
 	local closestDistance = math.huge
 	for _, otherPlayer in ipairs(Players:GetPlayers()) do
-		if otherPlayer ~= player then
+		-- The O-key hop uses the same Team Check setting as the aimbot.
+		if otherPlayer ~= player and (not S.TeamCheck or not playersAreTeammates(otherPlayer, player)) then
 			local otherCharacter = otherPlayer.Character
 			local otherHumanoid = otherCharacter and otherCharacter:FindFirstChildOfClass("Humanoid")
 			local otherRoot = otherCharacter and otherCharacter:FindFirstChild("HumanoidRootPart")
@@ -2003,6 +2240,13 @@ end
 keep(player.CharacterAdded:Connect(function()
 	cancelPlayerHop()
 end))
+
+local floatCard = section(mvRight, "Player Float")
+actionButton(floatCard, "Float above nearest player", function()
+	task.spawn(tweenAboveClosestPlayer)
+end)
+label(floatCard, "Key [O]  -  floats for 5 seconds", UDim2.new(1, 0, 0, 18), nil,
+	Enum.Font.Gotham, 11, C.SubText, Enum.TextXAlignment.Left).LayoutOrder = nextOrder(floatCard)
 
 -- PAGE: SETTINGS ------------------------------------------------------------
 local _, sLeft, sRight = newPage("Settings", 0)
@@ -2104,9 +2348,13 @@ end
 
 local menuCard = section(sLeft, "Menu")
 
-ctl.accent = dropdown(menuCard, "Accent", THEME_NAMES, "White", function(v)
-	applyTheme(THEMES[v])
+ctl.accent = dropdown(menuCard, "Accent", THEME_NAMES, "Red", function(v)
+	applyTheme(THEMES[v] or THEMES.Red)
 	notify("Accent: " .. v)
+end)
+
+ctl.uiSize = slider(menuCard, "UI Size", 60, 180, math.floor(defaultScale * 20 + 0.5) * 5, 5, "%d%%", function(v)
+	setUiScale(v / 100)
 end)
 
 actionButton(menuCard, "Unload XAMA", function()
@@ -2114,11 +2362,30 @@ actionButton(menuCard, "Unload XAMA", function()
 end)
 
 -- SAVE / LOAD SETTINGS ---------------------------------------------------
--- Saves every control (checkboxes, sliders, dropdowns) in ctl.
--- Always kept in _G.XamaSaved, so it survives Unload + re-running the script.
--- If the server-side settings RemoteFunction exists, settings also persist between sessions.
-local function getRemote()
-	return ReplicatedStorage:FindFirstChild("XamaSettings")
+-- Saves every control (toggles, checkboxes, sliders, dropdowns) in ctl.
+-- It writes to every place that is available:
+--   session : _G.XamaSaved (survives Unload + re-running the script)
+--   file    : XAMA_config.json, if writefile / readfile / isfile exist in your environment
+--   game    : DataStore, if the Script half is in ServerScriptService
+-- Load reads file -> game -> session, whichever it finds first.
+local CONFIG_FILE = "XAMA_config.json"
+
+local function fileApi()
+	local ok, w, r, e = pcall(function()
+		return writefile, readfile, isfile
+	end)
+	if ok and type(w) == "function" and type(r) == "function" and type(e) == "function" then
+		return w, r, e
+	end
+	return nil
+end
+
+local function getRemote(wait)
+	local r = ReplicatedStorage:FindFirstChild("XamaSettings")
+	if not r and wait then
+		r = ReplicatedStorage:WaitForChild("XamaSettings", 2)
+	end
+	return r
 end
 
 local function collectSettings()
@@ -2134,70 +2401,113 @@ local function collectSettings()
 end
 
 local function applySettings(data)
+	local applied = 0
 	for key, v in pairs(data) do
 		local c = ctl[key]
 		-- headOnly is just a shortcut for Hit Parts = Head, so it is synced after
 		if c and key ~= "headOnly" and type(v) == type(c.Value) then
 			c.Set(v)
+			applied += 1
 		end
 	end
-	if ctl.headOnly then
+	if ctl.headOnly and ctl.hitPart then
 		ctl.headOnly.Set(ctl.hitPart.Value == "Head", true)
 	end
+	return applied
+end
+
+local configCard = section(mnLeft, "Config")
+local configInfo = label(configCard, "No saved config yet", UDim2.new(1, 0, 0, 30), nil,
+	Enum.Font.Gotham, 11, C.SubText, Enum.TextXAlignment.Left)
+configInfo.TextWrapped = true
+configInfo.LayoutOrder = nextOrder(configCard)
+
+local function setConfigInfo(text)
+	configInfo.Text = text
 end
 
 local function saveSettings()
 	local data = collectSettings()
 	_G.XamaSaved = data
+	local where = { "session" }
 
-	local remote = getRemote()
+	local w = fileApi()
+	if w then
+		local ok = pcall(function()
+			w(CONFIG_FILE, HttpService:JSONEncode(data))
+		end)
+		if ok then
+			table.insert(where, "file")
+		end
+	end
+
+	local remote = getRemote(false)
 	if remote then
 		local ok, result = pcall(function()
 			return remote:InvokeServer("Save", data)
 		end)
 		if ok and result then
-			notify("Settings saved (permanent)")
-		else
-			notify("Saved for this session (server save failed)")
+			table.insert(where, "game")
 		end
-	else
-		notify("Settings saved (this session only)")
 	end
+
+	local where_ = table.concat(where, " + ")
+	setConfigInfo("Saved " .. os.date("%H:%M:%S") .. " -> " .. where_)
+	notify("Settings saved (" .. where_ .. ")")
 end
 
-local function loadSettings(silentIfEmpty)
-	local data = nil
+local function readSaved(waitForServer)
+	local _, r, e = fileApi()
+	if r then
+		local ok, data = pcall(function()
+			if e(CONFIG_FILE) then
+				return HttpService:JSONDecode(r(CONFIG_FILE))
+			end
+			return nil
+		end)
+		if ok and type(data) == "table" then
+			return data, "file"
+		end
+	end
 
-	local remote = getRemote()
+	local remote = getRemote(waitForServer)
 	if remote then
 		local ok, result = pcall(function()
 			return remote:InvokeServer("Load")
 		end)
 		if ok and type(result) == "table" then
-			data = result
+			return result, "game"
 		end
 	end
-	data = data or _G.XamaSaved
 
-	if type(data) ~= "table" then
-		if not silentIfEmpty then
-			notify("No saved settings yet")
+	if type(_G.XamaSaved) == "table" then
+		return _G.XamaSaved, "session"
+	end
+	return nil
+end
+
+local function loadSettings(isAuto)
+	local data, from = readSaved(isAuto)
+	if not data then
+		setConfigInfo("No saved config found")
+		if not isAuto then
+			notify("No saved settings yet - press Save Settings first")
 		end
 		return
 	end
 
-	applySettings(data)
+	local count = applySettings(data)
 	_G.XamaSaved = data
-	notify("Settings loaded")
+	setConfigInfo("Loaded " .. count .. " settings from " .. from .. " at " .. os.date("%H:%M:%S"))
+	notify("Settings loaded from " .. from)
 end
 
-local configCard = section(sLeft, "Config")
 actionButton(configCard, "Save Settings", saveSettings)
 actionButton(configCard, "Load Settings", function()
 	loadSettings(false)
 end)
 
-local targetsCard = section(sRight, "Targets")
+local targetsCard = section(plLeft, "Targets")
 
 ctl.teamCheck = checkbox(targetsCard, "Team Check", true, function(v)
 	S.TeamCheck = v
@@ -2209,16 +2519,17 @@ ctl.includeNpcs = checkbox(targetsCard, "Include NPCs / Dummies", true, function
 end)
 
 local performanceCard = section(sRight, "Performance")
-ctl.textureReducer = checkbox(performanceCard, "Remove Textures", false, function(v)
+ctl.textureReducer = toggle(performanceCard, "Remove Textures", false, function(v)
 	TextureReducer.SetEnabled(v)
 	notify(v and "Texture layers hidden locally" or "Textures restored")
 end)
 
-local infoCard = section(sRight, "Keys")
-label(infoCard, "RightShift: hide / show menu\nQ: lock on / release (aimbot)\nO: tween above nearest player for 5 seconds", UDim2.new(1, 0, 0, 34), nil,
-	Enum.Font.Gotham, 13, C.SubText, Enum.TextXAlignment.Left).LayoutOrder = nextOrder(infoCard)
+local infoCard = section(mnRight, "Keys")
+local keysLabel = label(infoCard, "RightShift  -  hide / show menu\nQ  -  lock on / release aimbot\nK  -  toggle fly\nO  -  float above nearest player (5s)",
+	UDim2.new(1, 0, 0, 62), nil, Enum.Font.Gotham, 11, C.SubText, Enum.TextXAlignment.Left)
+keysLabel.LayoutOrder = nextOrder(infoCard)
 
-showPage("Combat")
+showPage("Main")
 
 -- Drag / minimize / close --------------------------------------------------
 makeDraggable(topBar, main)
@@ -2231,14 +2542,14 @@ minBtn.MouseButton1Click:Connect(function()
 		minBtn.Text = "+"
 		tween(main, 0.3, {
 			Size = MINI_SIZE,
-			Position = main.Position - UDim2.fromOffset(0, SHIFT_Y),
+			Position = main.Position - UDim2.fromOffset(0, SHIFT_Y * (main:GetAttribute("BaseScale") or 1)),
 		}, Enum.EasingStyle.Quint)
 	else
 		content.Visible = true
 		minBtn.Text = "-"
 		tween(main, 0.3, {
 			Size = FULL_SIZE,
-			Position = main.Position + UDim2.fromOffset(0, SHIFT_Y),
+			Position = main.Position + UDim2.fromOffset(0, SHIFT_Y * (main:GetAttribute("BaseScale") or 1)),
 		}, Enum.EasingStyle.Quint)
 	end
 end)
@@ -2259,32 +2570,56 @@ keep(UserInputService.InputBegan:Connect(function(input, processed)
 end))
 
 
--- START: loading sequence, then straight into the hub --------------------
-task.spawn(function()
-	tween(blur, 0.6, { Size = 16 })
-	openPanel(loadPanel)
+-- START: no loader, the hub just plays an intro animation -------------------
+local function playIntro()
+	local scale = main:FindFirstChildOfClass("UIScale")
+	local base = main:GetAttribute("BaseScale") or 1
+	local center = main.Position
 
-	local steps = {
-		"Connecting Root Bypass.roblox.byfron-rivalsanticht ...",
-		"Verifying Game modules...",
-		"Creating the button interface...",
-		"Connected to...",
-	}
+	scale.Scale = base * 0.8
+	main.Position = center + UDim2.fromOffset(0, 30)
+	main.Visible = true
 
-	for i, step in ipairs(steps) do
-		loadStatus.Text = step
-		tween(barFill, 0.5, { Size = UDim2.fromScale(i / #steps, 1) })
-		task.wait(0.7)
+	-- glow and border fade in
+	for _, child in ipairs(main:GetChildren()) do
+		if string.sub(child.Name, 1, 4) == "Glow" then
+			local target = child.BackgroundTransparency
+			child.BackgroundTransparency = 1
+			tween(child, 0.9, { BackgroundTransparency = target })
+		end
+	end
+	local stroke = mainBody:FindFirstChildOfClass("UIStroke")
+	if stroke then
+		stroke.Transparency = 1
+		tween(stroke, 0.6, { Transparency = 0.1 })
 	end
 
-	task.wait(0.2)
-	closePanel(loadPanel)
-	task.wait(0.4)
-	tween(blur, 0.5, { Size = 0 })
-	unlocked = true
-	openPanel(main)
+	-- window pops up and settles
+	tween(scale, 0.55, { Scale = base }, Enum.EasingStyle.Back)
+	tween(main, 0.5, { Position = center }, Enum.EasingStyle.Quint)
 
-		-- Restore settings after the menu's opening animation has finished.
-	task.wait(0.4)
+	-- tabs slide in one after another
+	for i, def in ipairs(navDefs) do
+		local nav = navButtons[def[1]]
+		if nav then
+			local iconPos = nav.Icon.Position
+			local textPos = nav.Label.Position
+			nav.Icon.Position = iconPos - UDim2.fromOffset(18, 0)
+			nav.Label.Position = textPos - UDim2.fromOffset(18, 0)
+			nav.Label.TextTransparency = 1
+			task.delay(0.15 + i * 0.06, function()
+				tween(nav.Icon, 0.3, { Position = iconPos }, Enum.EasingStyle.Quint)
+				tween(nav.Label, 0.3, { Position = textPos, TextTransparency = 0 }, Enum.EasingStyle.Quint)
+			end)
+		end
+	end
+end
+
+task.spawn(function()
+	unlocked = true
+	playIntro()
+
+	-- bring back the saved config once the intro has played
+	task.wait(0.8)
 	loadSettings(true)
 end)
