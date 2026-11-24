@@ -1731,8 +1731,50 @@ local flyEnabled = false
 local flyVelocity, flyGyro, flyHumanoid, flyRoot, flyConn
 local flyOriginalAutoRotate
 
+-- Noclip is tied to the existing Fly toggle (K / Combat > Movement > Fly).
+-- Save each part's original collision setting so it can be restored exactly.
+local flyNoclipOriginals = {}
+local flyNoclipConnection
+
+local function setFlyNoclip(enabled, character)
+	if enabled then
+		if not character then return end
+		for _, inst in ipairs(character:GetDescendants()) do
+			if inst:IsA("BasePart") then
+				if flyNoclipOriginals[inst] == nil then
+					flyNoclipOriginals[inst] = inst.CanCollide
+				end
+				inst.CanCollide = false
+			end
+		end
+		if flyNoclipConnection then
+			flyNoclipConnection:Disconnect()
+		end
+		flyNoclipConnection = character.DescendantAdded:Connect(function(inst)
+			if inst:IsA("BasePart") then
+				if flyNoclipOriginals[inst] == nil then
+					flyNoclipOriginals[inst] = inst.CanCollide
+				end
+				inst.CanCollide = false
+			end
+		end)
+	else
+		if flyNoclipConnection then
+			flyNoclipConnection:Disconnect()
+			flyNoclipConnection = nil
+		end
+		for part, originalValue in pairs(flyNoclipOriginals) do
+			if part and part.Parent then
+				part.CanCollide = originalValue
+			end
+		end
+		table.clear(flyNoclipOriginals)
+	end
+end
+
 local function stopFlying()
 	flyEnabled = false
+	setFlyNoclip(false)
 	if flyConn then
 		flyConn:Disconnect()
 		flyConn = nil
@@ -1761,6 +1803,7 @@ local function startFlying()
 	end
 
 	flyEnabled = true
+	setFlyNoclip(true, character)
 	flyHumanoid, flyRoot = hum, root
 	flyOriginalAutoRotate = hum.AutoRotate
 	hum.AutoRotate = false
@@ -1831,6 +1874,135 @@ ctl.fly = checkbox(flyCard, "Fly", false, function(v)
 		notify("Fly OFF")
 	end
 end, "K")
+
+-- O key: tween above the nearest other player, then float there for 5 seconds.
+-- Intended for use in your own Roblox Studio experience.
+local hopTween, hopForce, hopConn
+local hopToken = 0
+local hopHumanoid, hopOriginalAutoRotate
+
+local function cancelPlayerHop()
+	hopToken += 1
+	if hopTween then
+		hopTween:Cancel()
+		hopTween = nil
+	end
+	if hopConn then
+		hopConn:Disconnect()
+		hopConn = nil
+	end
+	if hopForce then
+		hopForce:Destroy()
+		hopForce = nil
+	end
+	if hopHumanoid and hopHumanoid.Parent and hopOriginalAutoRotate ~= nil then
+		hopHumanoid.AutoRotate = hopOriginalAutoRotate
+	end
+	hopHumanoid, hopOriginalAutoRotate = nil, nil
+end
+
+local function getClosestOtherPlayer()
+	local character = player.Character
+	local myRoot = character and character:FindFirstChild("HumanoidRootPart")
+	if not myRoot then return nil end
+
+	local closestCharacter, closestHead
+	local closestDistance = math.huge
+	for _, otherPlayer in ipairs(Players:GetPlayers()) do
+		if otherPlayer ~= player then
+			local otherCharacter = otherPlayer.Character
+			local otherHumanoid = otherCharacter and otherCharacter:FindFirstChildOfClass("Humanoid")
+			local otherRoot = otherCharacter and otherCharacter:FindFirstChild("HumanoidRootPart")
+			local otherHead = otherCharacter and (otherCharacter:FindFirstChild("Head") or otherRoot)
+			if otherHumanoid and otherHumanoid.Health > 0 and otherRoot and otherHead then
+				local distance = (otherRoot.Position - myRoot.Position).Magnitude
+				if distance < closestDistance then
+					closestDistance = distance
+					closestCharacter, closestHead = otherCharacter, otherHead
+				end
+			end
+		end
+	end
+	return closestCharacter, closestHead
+end
+
+local function tweenAboveClosestPlayer()
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not humanoid or not root then
+		notify("Tween unavailable: character not ready")
+		return
+	end
+	if flyEnabled then
+		notify("Turn Fly off before using the O tween")
+		return
+	end
+
+	local targetCharacter, targetHead = getClosestOtherPlayer()
+	if not targetCharacter or not targetHead then
+		notify("No other living player found")
+		return
+	end
+
+	cancelPlayerHop()
+	local thisHop = hopToken
+	hopHumanoid = humanoid
+	hopOriginalAutoRotate = humanoid.AutoRotate
+	humanoid.AutoRotate = false
+
+	local hoverOffset = Vector3.new(0, 4.5, 0)
+	local destination = targetHead.Position + hoverOffset
+	local distance = (destination - root.Position).Magnitude
+	local duration = math.clamp(distance / 70, 0.4, 1.8)
+	local facing = root.CFrame.LookVector
+	local targetCFrame = CFrame.lookAt(destination, destination + Vector3.new(facing.X, 0, facing.Z))
+	hopTween = TweenService:Create(
+		root,
+		TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		{ CFrame = targetCFrame }
+	)
+	hopTween:Play()
+	local playbackState = hopTween.Completed:Wait()
+	if thisHop ~= hopToken or playbackState ~= Enum.PlaybackState.Completed then
+		return
+	end
+	hopTween = nil
+
+	if not targetCharacter.Parent or not targetHead.Parent then
+		cancelPlayerHop()
+		notify("Target left; tween cancelled")
+		return
+	end
+
+	hopForce = Instance.new("BodyPosition")
+	hopForce.Name = "XamaPlayerHover"
+	hopForce.MaxForce = Vector3.new(9e6, 9e6, 9e6)
+	hopForce.P = 30000
+	hopForce.D = 1500
+	hopForce.Position = targetHead.Position + hoverOffset
+	hopForce.Parent = root
+
+	local startedAt = os.clock()
+	hopConn = RunService.Heartbeat:Connect(function()
+		if thisHop ~= hopToken then return end
+		if not root.Parent or not targetCharacter.Parent or not targetHead.Parent then
+			cancelPlayerHop()
+			notify("Target unavailable; hover ended")
+			return
+		end
+		hopForce.Position = targetHead.Position + hoverOffset
+		if os.clock() - startedAt >= 5 then
+			cancelPlayerHop()
+			notify("Finished floating for 5 seconds")
+		end
+	end)
+	notify("Floating above " .. targetCharacter.Name .. " for 5 seconds")
+end
+
+keep(player.CharacterAdded:Connect(function()
+	cancelPlayerHop()
+end))
 
 -- PAGE: SETTINGS ------------------------------------------------------------
 local _, sLeft, sRight = newPage("Settings", 0)
@@ -1910,7 +2082,8 @@ local function unload()
 	end
 	unloading = true
 	unlocked = false
-		stopFlying()
+	cancelPlayerHop()
+	stopFlying()
 	Aim.SetEnabled(false)
 
 		Visuals.Shutdown()
@@ -2042,7 +2215,7 @@ ctl.textureReducer = checkbox(performanceCard, "Remove Textures", false, functio
 end)
 
 local infoCard = section(sRight, "Keys")
-label(infoCard, "RightShift: hide / show menu\nQ: lock on / release (aimbot)", UDim2.new(1, 0, 0, 34), nil,
+label(infoCard, "RightShift: hide / show menu\nQ: lock on / release (aimbot)\nO: tween above nearest player for 5 seconds", UDim2.new(1, 0, 0, 34), nil,
 	Enum.Font.Gotham, 13, C.SubText, Enum.TextXAlignment.Left).LayoutOrder = nextOrder(infoCard)
 
 showPage("Combat")
@@ -2080,6 +2253,8 @@ keep(UserInputService.InputBegan:Connect(function(input, processed)
 		main.Visible = not main.Visible
 	elseif input.KeyCode == Enum.KeyCode.K then
 		ctl.fly.Set(not ctl.fly.Value)
+	elseif input.KeyCode == Enum.KeyCode.O then
+		tweenAboveClosestPlayer()
 	end
 end))
 
